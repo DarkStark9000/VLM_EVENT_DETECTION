@@ -3,12 +3,9 @@ Video Processing Module for Event Detection and Analysis
 Handles video upload, frame extraction, and VLM-based event recognition
 """
 
-import os
 import base64
-import json
 import asyncio
 from typing import List, Dict, Optional
-import tempfile
 import io
 import av
 from openai import OpenAI
@@ -35,41 +32,7 @@ class VideoProcessor:
         )
         self.vlm_model = "Qwen/Qwen2.5-VL-7B-Instruct"
         
-        # Tools for structured output
-        self.event_extraction_tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "extract_video_events",
-                    "description": "Detects events in a video and provides their timestamps and descriptions",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "events": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": {"type": "string", "description": "Name or type of the event"},
-                                        "start": {"type": "string", "description": "Start time in MM:SS format"},
-                                        "end": {"type": "string", "description": "End time in MM:SS format"},
-                                        "description": {"type": "string", "description": "Detailed description of what happens"}
-                                    },
-                                    "required": ["name", "start", "end", "description"]
-                                }
-                            },
-                            "summary": {"type": "string", "description": "Overall summary of the video content"},
-                            "guidelines_violations": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "List of detected guideline violations or safety issues"
-                            }
-                        },
-                        "required": ["events", "summary", "guidelines_violations"]
-                    }
-                }
-            }
-        ]
+
 
     def extract_video_info(self, video_path: str) -> Dict:
         """Extract basic video information"""
