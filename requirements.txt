@@ -1,0 +1,40 @@
+# Core ML and AI libraries
+torch==2.7.1
+torchvision==0.22.1
+transformers==4.55.0
+accelerate==1.9.0
+
+# Video processing
+opencv-python==4.12.0.88
+av==15.0.0
+decord==0.6.0
+ffmpeg-python==0.2.0
+imageio==2.37.0
+Pillow==11.3.0
+
+# Embeddings and Vector Database
+sentence-transformers==5.0.0
+chromadb==1.0.15
+
+# Open-source model support
+huggingface-hub==0.34.3
+safetensors==0.5.3
+
+# Data handling and utilities
+numpy==2.2.6
+pandas==2.3.1
+pydantic==2.11.7
+
+# CLI and interface
+colorama==0.4.6
+tqdm==4.67.1
+
+# Development and testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# Additional utilities
+requests>=2.31.0
+python-dateutil>=2.8.2
+
+# Note: pathlib, uuid, datetime, argparse, os, sys, re are built into Python

@@ -1,0 +1,138 @@
+# Visual Understanding Chat Assistant - .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyTorch models and cache
+*.pth
+*.pt
+*.safetensors
+.cache/
+
+# Hugging Face transformers cache
+.transformers_cache/
+transformers_cache/
+~/.cache/huggingface/
+
+# ChromaDB database files
+chroma_db/
+*.db
+*.sqlite
+*.sqlite3
+
+# Chat history and logs
+chat_history.db
+logs/
+*.log
+
+# Video files (large files - don't commit to git)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.flv
+*.wmv
+input_videos/
+temp_videos/
+output_videos/
+
+# Model downloads
+models/
+checkpoints/
+
+# Configuration files with sensitive data
+config_local.json
+.env
+*.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Test coverage
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Backup files
+*.backup
+*.bak
+
+# Large data files
+*.npy
+*.npz
+*.pickle
+*.pkl
+
+# Documentation builds
+docs/_build/
+
+# Custom application data
+user_data/
+sessions/
+uploads/
+
+lib/
+lib64/
+venv/
+share/
+vlmtest
+
+requirements-optional.txt
