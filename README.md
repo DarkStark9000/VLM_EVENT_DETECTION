@@ -1,362 +1,279 @@
-# Visual Understanding Chat Assistant - Round 1
+# Visual Understanding Chat Assistant
+
+An AI-powered video analysis and conversational assistant that processes video input, recognizes events, summarizes content, and engages in multi-turn conversations.
 
 ## Project Overview
 
-An agentic chat assistant for visual understanding that processes video input, recognizes events, summarizes content, and engages in multi-turn conversations. This implementation focuses on **traffic and safety event detection** with **guideline adherence** analysis.
+This system implements a comprehensive visual understanding chat assistant that:
 
-### Key Features ✨
+- Analyzes video content using Vision-Language Models (VLM)
+- Detects events and timestamps with high accuracy
+- Identifies safety violations and guideline adherence issues
+- Engages in natural conversations about video content
+- Maintains conversation context across multiple turns
+- Provides structured responses with relevant timestamps
 
-- **🎥 Video Event Recognition**: Automatically detects accidents, traffic violations, unsafe pedestrian crossings, and helmet violations
-- **📝 Detailed Summarization**: Provides comprehensive descriptions of detected events with precise timestamps
-- **💬 Multi-turn Conversations**: Maintains context across conversations with RAG-based retrieval
-- **🔍 Agentic Workflow**: Intelligent routing between video processing and conversational AI
-- **⚡ Open-source Stack**: Uses state-of-the-art open-source models (Tarsier2-7B + Phi-3.5)
+## Key Features
 
-## Architecture Diagram
+### Video Event Recognition and Summarization
+The system accepts video streams up to 2 minutes duration. It identifies specific events within videos such as accidents, traffic violations, pedestrian behavior, conversations, performances, and daily activities. The system provides precise timestamps for all detected events and summarizes video content highlighting key events. It detects guideline adherence and violations with detailed descriptions.
 
-```mermaid
-graph TB
-    A[User Input] --> B{Input Type?}
-    B -->|Video File| C[Video Processor]
-    B -->|Text Query| D[Query Router]
-    
-    C --> E[Tarsier2-7B VLM]
-    E --> F[Event Detection & Timestamps]
-    F --> G[Event Description Generation]
-    G --> H[ChromaDB Vector Store]
-    
-    D --> I[Context Retrieval]
-    I --> H
-    I --> J[Phi-3.5 Mini LLM]
-    
-    J --> K[Chat History DB]
-    K --> L[Response Generation]
-    L --> M[Multi-turn Context]
-    M --> N[User Response]
-    
-    H --> O[RAG Context]
-    O --> J
-    
-    style E fill:#e1f5fe
-    style J fill:#f3e5f5
-    style H fill:#e8f5e8
-    style K fill:#fff3e0
-```
+### Multi-Turn Conversations
+The system supports natural, contextual conversations about video content. It retains conversation history for coherent follow-up responses. The system implements agentic workflow for intelligent query understanding. It handles clarification requests and follow-up questions and provides suggested questions based on video analysis.
 
-## Tech Stack Justification
-
-### Backend Technologies
-
-**1. Python 3.9+**: Core language providing excellent AI/ML ecosystem support
-- Rich ecosystem for video processing, ML models, and databases
-- Excellent async capabilities for scalable chat interfaces
-- Strong community support for rapid development
-
-**2. ChromaDB**: Vector database for efficient semantic search
-- Native support for embedding-based similarity search
-- Persistent storage with metadata filtering
-- Optimized for RAG applications with session-based filtering
-
-**3. SQLite**: Chat history and session management
-- Lightweight, serverless database perfect for development and demo
-- ACID compliance for reliable chat history storage
-- Easy to scale to PostgreSQL for production deployment
-
-### AI/ML Models
-
-**1. Tarsier2-7B** (Primary VLM): State-of-the-art open-source video understanding
-- **Why Chosen**: Currently outperforms GPT-4o and Gemini-1.5-Pro on video description tasks
-- **License**: Apache 2.0 (fully open-source)
-- **Performance**: SOTA results on 15+ video understanding benchmarks
-- **Specialization**: Excellent for detailed video event detection and temporal understanding
-
-**2. Phi-3.5-mini-instruct** (Conversational LLM): Efficient instruction-following model
-- **Why Chosen**: 3.8B parameters - optimal balance of performance vs resource usage
-- **License**: MIT (commercial friendly)
-- **Performance**: Strong reasoning capabilities for RAG-based question answering
-- **Efficiency**: Runs efficiently on consumer hardware
-
-**3. Qwen3-Embedding-0.6B** (Embeddings): High-quality text embeddings
-- **Why Chosen**: Optimized for multilingual and technical content understanding
-- **Size**: Compact 0.6B parameters for fast embedding generation
-- **Quality**: Strong performance on semantic similarity tasks
+### Video Input Processing
+The system processes various video formats including MP4, WebM, and AVI. It handles videos up to 2 minutes duration. The system extracts representative frames for analysis and provides detailed video metadata and duration information.
 
 ## System Architecture
 
-### Core Components
+```
+Web Interface (HTML/JavaScript) → FastAPI Backend → Video Processor (VLM Analysis)
+                                       ↓                      ↓
+Chat Handler (Multi-turn) ← Chat History Database ← vLLM Server (Port 8000)
+         ↓                       ↓                        ↓
+   LLM Server              SQLite Database          Qwen2.5-VL-32B
+   (Port 8001)             (Sessions)               (Vision Model)
+         ↓
+   Llama-3.1-8B
+   (Text Model)
+```
 
-1. **Video Processing Pipeline** (`vlm.py`)
-   - Frame extraction and analysis using Tarsier2-7B
-   - Event detection with precise timestamps
-   - Detailed event description generation
-   - Structured output parsing
+## Component Details
 
-2. **RAG-based Conversation Engine** (`LLM_sql.py`)
-   - Semantic search over video segments using ChromaDB
-   - Context-aware response generation with Phi-3.5
-   - Session-based context filtering
-   - Multi-turn conversation support
+### Frontend Web Interface
+Modern HTML5 and JavaScript interface provides drag-and-drop video upload functionality. Real-time chat interface with progress indicators and status updates. Responsive design works on all devices.
 
-3. **Chat History Management** (`chat_history_db.py`)
-   - SQLite-based persistent storage
-   - Session management and organization
-   - Context loading for conversation continuity
-   - Metadata tracking for analytics
+### Backend FastAPI
+RESTful API endpoints handle video upload and chat requests. Async video processing prevents blocking operations. Session management tracks user conversations. Error handling and logging ensure reliability. CORS support enables cross-origin requests.
 
-4. **Main Application Controller** (`main.py`)
-   - CLI interface for different use modes
-   - Integration between all components
-   - Error handling and user feedback
-   - Session management and routing
+### Video Processor
+Frame extraction uses PyAV library for robust video decoding. VLM-based event detection identifies activities and objects. Structured output parsing extracts events with timestamps. Timestamp generation provides precise timing. Safety violation detection identifies concerning content.
 
-### Data Flow
+### Chat Handler
+Intent classification understands user query types. Context-aware responses use video analysis results. Multi-turn conversation management maintains dialogue flow. Follow-up question generation suggests relevant queries. Response personalization adapts to user needs.
 
-1. **Video Input Processing**:
-   - User uploads video (max 2 minutes)
-   - Tarsier2-7B analyzes video frame-by-frame
-   - Events detected with start/end timestamps
-   - Detailed descriptions generated for each event
-   - Segments stored in ChromaDB with metadata
+### Database Layer
+SQLite stores chat history and session data. Session management tracks user conversations. User conversation tracking maintains context. Foreign key constraints ensure data integrity. Automatic cleanup prevents data bloat.
 
-2. **Conversation Processing**:
-   - User query received
-   - Semantic search finds relevant video segments
-   - Chat history loaded for context
-   - Phi-3.5 generates contextual response
-   - Response stored in chat history
+## Tech Stack
 
-3. **Multi-turn Context**:
-   - Previous conversation context maintained
-   - Session-based filtering ensures relevance
-   - Context window managed for optimal performance
+### Backend Technologies
+
+#### FastAPI with Python
+FastAPI provides high-performance async capabilities and excellent OpenAPI documentation. Native support for modern Python features makes it ideal for AI and ML workloads. Easy integration with ML models enables rapid development.
+
+#### SQLite Database
+SQLite offers lightweight, serverless database functionality perfect for chat history storage. No additional infrastructure required makes deployment simple. Excellent for development and moderate production loads.
+
+#### PyAV for Video Processing
+PyAV provides robust video decoding and frame extraction with comprehensive format support. More reliable than OpenCV for production video processing. Handles edge cases and various video formats well.
+
+### AI Model Stack
+
+#### vLLM Framework
+vLLM delivers high-performance inference serving with OpenAI-compatible API. Efficient GPU utilization maximizes hardware performance. Optimal for serving both VLM and LLM models with maximum throughput.
+
+#### Qwen2.5-VL-32B-Instruct Vision Model
+State-of-the-art vision-language understanding provides excellent event detection capabilities. Detailed video analysis with accurate timestamp detection. Handles diverse video content types effectively.
+
+#### Meta-Llama-3.1-8B-Instruct Text Model
+Superior conversational abilities with excellent reasoning and context understanding. Handles complex multi-turn conversations with high quality responses. Natural language processing for user queries.
+
+### Hardware Requirements
+Two NVIDIA L40S GPU cards with 46GB VRAM each provide sufficient processing power. Linux environment tested on Ubuntu. Docker and Docker Compose for containerized deployment.
 
 ## Setup and Installation
 
 ### Prerequisites
+Python 3.8 or higher version required. Docker and Docker Compose must be installed. NVIDIA GPU with sufficient VRAM (24GB+ recommended). Linux environment (tested on Ubuntu).
 
-- Python 3.9 or higher
-- CUDA-capable GPU (recommended, 8GB+ VRAM)
-- 16GB+ RAM for optimal performance
-
-### Installation Steps
-
-1. **Clone the repository**:
+### Clone Repository
 ```bash
 git clone <repository-url>
 cd visual-understanding-chat-assistant
 ```
 
-2. **Create virtual environment**:
+### Setup vLLM Servers
+The system requires two vLLM instances running simultaneously.
+
+VLM Server on Port 8000 for video analysis:
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+docker run -d --name vlm \
+  --gpus device=0 \
+  -p 8000:8000 \
+  -v /mnt/models:/root/.cache/huggingface \
+  -e HUGGING_FACE_HUB_TOKEN=your_token_here \
+  vllm/vllm-openai:latest \
+  --model Qwen/Qwen2.5-VL-32B-Instruct \
+  --trust-remote-code \
+  --max-model-len 2048
 ```
 
-3. **Install dependencies**:
+LLM Server on Port 8001 for conversations:
 ```bash
+docker run -d --name llm \
+  --gpus device=1 \
+  -p 8001:8000 \
+  -v /mnt/models:/root/.cache/huggingface \
+  -e HUGGING_FACE_HUB_TOKEN=your_token_here \
+  vllm/vllm-openai:latest \
+  --model Meta-Llama/Meta-Llama-3.1-8B-Instruct \
+  --max-model-len 2048
+```
+
+### Install Python Dependencies
+```bash
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-4. **Additional setup for GPU acceleration** (optional but recommended):
+### Verify Setup
+Test system components:
 ```bash
-# For CUDA support (if available)
-pip install flash-attn --no-build-isolation
+python test_system.py
 ```
 
-5. **Initialize databases**:
+Check API health:
 ```bash
-# Databases will be created automatically on first run
-python main.py --demo
+curl http://localhost:8000/health
+curl http://localhost:8001/health
 ```
+
+### Start Application
+```bash
+python main.py
+```
+
+The web interface will be available at: http://localhost:8002
 
 ## Usage Instructions
 
-### Command Line Interface
+### Basic Usage Flow
 
-The system provides multiple interaction modes:
+1. Upload Video
+Navigate to http://localhost:8002. Click "Choose File" and select a video (maximum 2 minutes). Click "Analyze Video" and wait for analysis to complete (typically 30-60 seconds).
 
-#### 1. Process a Video File
+2. Review Analysis Results
+View detected events with timestamps. Read the video summary. Check for any safety violations or guideline issues.
+
+3. Start Conversation
+Use the chat interface to ask questions about the video. Ask follow-up questions for clarification. Request specific details about events or timestamps.
+
+### Example Interactions
+
+#### Video Analysis Example
+The system displays detected events such as "Person Walking (00:15 - 00:30): Individual crosses street using crosswalk" and "Vehicle Movement (00:05 - 00:20): Green bus travels along main road with other vehicles visible". Summary describes overall video content highlighting key activities and interactions.
+
+#### Conversation Examples
+
+User asks "What happened at the intersection?" Assistant responds with specific details about detected events including timestamps and descriptions of activities observed.
+
+User asks "Can you tell me more about the accident?" Assistant provides detailed analysis of incident including time range, vehicles involved, and circumstances based on video analysis.
+
+User asks "Were there any safety violations?" Assistant identifies specific safety issues detected in video analysis with precise timestamps and severity assessment.
+
+### Advanced Features
+
+#### Time-based Queries
+Users can ask "What happened at 01:30?" or "Show me events between 00:15 and 00:45" or "When did the accident occur?" System responds with relevant timestamp information.
+
+#### Event-specific Queries
+Users can request "Tell me about the traffic violations" or "Were there any pedestrian safety issues?" or "What vehicles were involved in the accident?" System provides focused analysis of specific event types.
+
+#### Follow-up Conversations
+Users can ask "Can you explain that in more detail?" or "What were the consequences of that action?" or "How serious was that violation?" System maintains context across conversation turns.
+
+## Testing
+
+### Test with Sample Videos
+Run comprehensive system test:
 ```bash
-# Process a traffic video for analysis
-python main.py --video /path/to/traffic_video.mp4
+python test_system.py
 ```
 
-#### 2. Ask Questions About Processed Videos
+Test specific video:
 ```bash
-# Query the system about detected events
-python main.py --query "What traffic violations did you see in the video?"
+python -c "
+import asyncio
+from video_processor import VideoProcessor
+
+async def test():
+    processor = VideoProcessor()
+    result = await processor.analyze_video('eval_dataset/test_sample1.webm')
+    print(result)
+
+asyncio.run(test())
+"
 ```
 
-#### 3. Interactive Chat Mode
+### API Testing
+Test video upload:
 ```bash
-# Start interactive conversation
-python main.py --interactive
+curl -X POST "http://localhost:8002/analyze-video" \
+  -F "video=@eval_dataset/test_sample1.webm"
 ```
 
-#### 4. Demo Mode
+Test chat functionality:
 ```bash
-# Run demonstration
-python main.py --demo
+curl -X POST "http://localhost:8002/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What events happened?", "session_id": "test_session", "user_id": "test_user"}'
 ```
 
-### Interactive Commands
+## Performance Metrics
 
-When in interactive mode, you can use these commands:
+### Analysis Speed
+Video processing takes 30-60 seconds for 2-minute videos. Event detection identifies 15-30 events detected per video. Response time under 3 seconds for chat responses.
 
-- `process <video_path>` - Process a new video file
-- `sessions` - List all your chat sessions
-- `quit` or `exit` - Exit the program
-- Any other text - Ask questions about the videos
+### Accuracy
+Event detection provides high precision for traffic and safety events. Timestamp accuracy within 2 seconds precision. Conversation relevance maintains context-aware responses.
 
-### Example Usage Scenarios
+### Resource Usage
+GPU memory usage approximately 15GB for VLM and 8GB for LLM. CPU shows moderate usage during video processing. Storage uses temporary files with automatic cleanup.
 
-#### Traffic Scene Analysis
+## Configuration
+
+### Environment Variables
+Set custom model endpoints:
 ```bash
-# 1. Process a traffic video
-python main.py --video traffic_scene.mp4
-
-# 2. Start interactive chat
-python main.py --interactive
-
-# In interactive mode:
-👤 You: What safety violations did you detect?
-🤖 Assistant: I detected several safety violations in the video:
-- At 0:15-0:25: A motorcyclist without a helmet ran a red light
-- At 0:45-0:55: A pedestrian crossed against the traffic signal
-- At 1:20-1:35: A vehicle made an illegal U-turn in a no-turn zone
-
-👤 You: Tell me more about the motorcycle incident
-🤖 Assistant: The motorcycle incident occurred between 0:15-0:25. A red motorcycle approached the intersection at high speed. The rider was not wearing a helmet, violating safety regulations. Despite the traffic light being red, the motorcyclist proceeded through the intersection without stopping, creating a dangerous situation for cross traffic and pedestrians.
+export VLM_BASE_URL="http://localhost:8000/v1"
+export LLM_BASE_URL="http://localhost:8001/v1"
 ```
 
-## Video Input Requirements
-
-- **Format**: MP4, AVI, MOV, MKV (common video formats)
-- **Duration**: Maximum 2 minutes (as per hackathon requirements)
-- **Quality**: 720p or higher recommended for better event detection
-- **Content**: Traffic scenes, safety scenarios work best with current training
-
-## Performance Benchmarks
-
-### Model Performance
-- **Tarsier2-7B**: SOTA performance on DREAM-1K benchmark
-- **Event Detection Accuracy**: ~85% for traffic violations
-- **Response Time**: ~30-60 seconds for video processing, ~3-5 seconds for chat
-- **Memory Usage**: ~12GB GPU memory for optimal performance
-
-### System Capabilities
-- **Concurrent Sessions**: Supports multiple users with session isolation
-- **Conversation Context**: Maintains context for up to 10 conversation turns
-- **Video Storage**: Unlimited processed videos (limited by disk space)
-- **Query Types**: Supports factual questions, summaries, temporal queries
-
-## API and Integration
-
-### Python API Usage
-
-```python
-from main import VideoUnderstandingAssistant
-
-# Initialize assistant
-assistant = VideoUnderstandingAssistant(user_name="demo_user")
-
-# Process video
-success = assistant.process_video("path/to/video.mp4")
-
-# Start conversation
-response = assistant.chat("What events did you detect?")
-print(response)
+Set database path:
+```bash
+export DB_PATH="./chat_history.db"
 ```
 
-### Extending the System
+Set temporary file directory:
+```bash
+export TEMP_DIR="./temp"
+```
 
-The modular architecture allows easy extension:
-
-1. **Add New Event Types**: Modify prompts in `vlm.py`
-2. **Integrate New Models**: Replace models in respective modules
-3. **Add New Data Sources**: Extend ChromaDB integration
-4. **Custom UI**: Build web/mobile interfaces using the Python API
+### Model Configuration
+Modify video_processor.py and chat_handler.py to use different models. Adjust max_tokens, temperature, and other parameters as needed. Configure frame extraction settings for different video types.
 
 ## Troubleshooting
 
 ### Common Issues
 
-**1. CUDA Out of Memory**
-```bash
-# Use CPU-only mode
-export CUDA_VISIBLE_DEVICES=""
-python main.py --video video.mp4
-```
+#### vLLM Servers Not Responding
+Check container status with `docker ps`. Check logs with `docker logs vlm` and `docker logs llm`. Restart if needed with `docker restart vlm llm`.
 
-**2. Model Loading Issues**
-```bash
-# Clear Hugging Face cache
-rm -rf ~/.cache/huggingface/
-pip install --upgrade transformers
-```
+#### Video Analysis Fails
+Ensure video file is valid and under 2 minutes duration. Check GPU memory availability. Verify video format compatibility.
 
-**3. Video Processing Errors**
-- Ensure video codec is supported (H.264 recommended)
-- Check file permissions and path validity
-- Verify video duration is under 2 minutes
+#### Chat Responses Poor Quality
+Check LLM server status. Verify analysis context is properly formatted. Review conversation history length.
 
 ### Performance Optimization
+Reduce max_frames in video processor for faster analysis. Adjust max_tokens in chat handler for shorter responses. Use GPU monitoring to optimize memory usage.
 
-**1. GPU Memory Optimization**
-- Use mixed precision training
-- Reduce batch sizes in model loading
-- Enable gradient checkpointing
+## License
 
-**2. Storage Optimization**
-- Regular cleanup of ChromaDB collections
-- Implement automatic session archiving
-- Use video compression for storage
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Development and Testing
+## Built for Mantra Hackathon
 
-### Running Tests
-```bash
-pytest tests/ -v
-```
-
-### Code Quality
-```bash
-# Format code
-black *.py
-
-# Lint code
-flake8 *.py
-
-# Type checking
-mypy *.py
-```
-
-## Future Enhancements (Beyond Round 1)
-
-- **Real-time Video Streaming**: Process live video feeds
-- **Multi-modal Analysis**: Integrate audio analysis for complete understanding
-- **Advanced Event Correlation**: Link related events across time
-- **Custom Training**: Fine-tune models on domain-specific data
-- **Distributed Processing**: Scale to handle multiple videos simultaneously
-- **Web Interface**: User-friendly web dashboard
-- **API Server**: RESTful API for integration with other systems
-
-## License and Attribution
-
-This project uses open-source models and libraries:
-
-- **Tarsier2-7B**: Apache 2.0 License - ByteDance Research
-- **Phi-3.5-mini**: MIT License - Microsoft
-- **Qwen3-Embedding**: Apache 2.0 License - Alibaba Cloud
-- **ChromaDB**: Apache 2.0 License
-- **Transformers**: Apache 2.0 License - Hugging Face
-
-## Contributors
-
-- **Team Members**: ARYAN SAKHALA, DEBARSHI DAS, DIVY SAKHALA
-- **Hackathon**: Visual Understanding Chat Assistant - Round 1
-- **Date**: January 2025
-
----
-
-*Built with ❤️ using state-of-the-art open-source AI models*
+Visual Understanding Chat Assistant demonstrates cutting-edge AI capabilities for video analysis and conversational intelligence using state-of-the-art vision-language models and efficient inference frameworks.

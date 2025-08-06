@@ -1,303 +1,331 @@
-#!/usr/bin/env python3
 """
-Visual Understanding Chat Assistant - Round 1 Implementation
-Hackathon Submission: Agentic chat assistant for video processing and multi-turn conversations
-
-This is the main entry point that integrates:
-- Video event recognition and summarization using Tarsier2-7B (open-source SOTA VLM)
-- RAG-based retrieval and conversation using open-source LLM 
-- Multi-turn conversation support with chat history
-- ChromaDB for storing and retrieving video segments
+Visual Understanding Chat Assistant - Main Application
+A comprehensive system for video analysis, event detection, and multi-turn conversations.
 """
 
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import uvicorn
+import asyncio
 import os
-import sys
-import argparse
+import tempfile
 import uuid
-import logging
+from typing import List, Dict, Optional
+import json
 from datetime import datetime
-from pathlib import Path
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# Import our custom modules
-from vlm import process_video_with_llava, Event
-from LLM_sql import retrieve_context, ask_model, chroma_client, embedder
+from video_processor import VideoProcessor
+from chat_handler import ChatHandler
 from chat_history_db import (
     save_chat_to_db, 
     load_chat_history, 
     create_new_session, 
-    get_user_sessions,
-    rename_session
+    get_user_sessions
 )
 
-class VideoUnderstandingAssistant:
-    """
-    Main class for the Visual Understanding Chat Assistant
-    """
-    
-    def __init__(self, user_name: str = "hackathon_user"):
-        self.user_name = user_name
-        self.session_id = None
-        self.collection_name = "video_segments"
-        
-        logger.info("Visual Understanding Chat Assistant - Round 1")
-        logger.info("=" * 60)
-        logger.info("Features:")
-        logger.info("- Video Event Recognition & Summarization")
-        logger.info("- Multi-turn Conversations with Context")
-        logger.info("- Open-source Models (LLaVA-1.5-7B + Phi-3.5)")
-        logger.info("- RAG-based Video Content Retrieval")
-        logger.info("=" * 60)
-        
-    def process_video(self, video_path: str) -> bool:
-        """
-        Process a video file and store segments in ChromaDB
-        """
-        logger.info(f"Processing video: {video_path}")
-        
-        if not os.path.exists(video_path):
-            logger.error(f"Video file not found at {video_path}")
-            return False
-        
-        try:
-            # Step 1: Extract events using LLaVA
-            logger.info("Analyzing video with LLaVA-1.5-7B")
-            events = process_video_with_llava(video_path)
+# Initialize FastAPI app
+app = FastAPI(
+    title="Visual Understanding Chat Assistant",
+    description="AI-powered video analysis and conversational assistant",
+    version="1.0.0"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Initialize components
+video_processor = VideoProcessor()
+chat_handler = ChatHandler()
+
+# In-memory storage for video analysis results (in production, use Redis/DB)
+analysis_cache = {}
+
+@app.get("/", response_class=HTMLResponse)
+async def get_homepage():
+    """Serve the main web interface"""
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Visual Understanding Chat Assistant</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+            .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #e0e0e0; padding-bottom: 20px; }
+            .upload-section { margin-bottom: 30px; padding: 20px; border: 2px dashed #ccc; border-radius: 10px; text-align: center; }
+            .chat-section { display: none; }
+            .chat-container { height: 400px; overflow-y: auto; border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 5px; background: #fafafa; }
+            .message { margin-bottom: 15px; padding: 10px; border-radius: 8px; }
+            .user-message { background: #007bff; color: white; margin-left: 20%; }
+            .assistant-message { background: #e9ecef; margin-right: 20%; }
+            .input-group { display: flex; gap: 10px; }
+            input[type="text"] { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
+            button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+            button:hover { background: #0056b3; }
+            .analysis-results { margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px; border-left: 4px solid #007bff; }
+            .event-item { background: white; margin: 10px 0; padding: 10px; border-radius: 5px; border: 1px solid #ddd; }
+            .loading { text-align: center; color: #666; font-style: italic; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🎥 Visual Understanding Chat Assistant</h1>
+                <p>Upload a video to analyze events and engage in intelligent conversations about the content</p>
+            </div>
             
-            if not events:
-                logger.warning("No events detected in the video")
-                return False
+            <div class="upload-section" id="uploadSection">
+                <h3>📁 Upload Video for Analysis</h3>
+                <input type="file" id="videoFile" accept="video/*" style="margin: 10px;">
+                <br>
+                <button onclick="uploadVideo()">🚀 Analyze Video</button>
+                <div id="uploadStatus"></div>
+            </div>
             
-            # Step 2: Store in ChromaDB for retrieval
-            logger.info("Storing video segments in ChromaDB")
-            collection = chroma_client.get_or_create_collection(name=self.collection_name)
-            
-            documents = []
-            metadatas = []
-            ids = []
-            
-            for i, event in enumerate(events):
-                # Create document text for embedding
-                doc_text = f"Event: {event['event']} from {event['start']} to {event['end']}. Description: {event['description']}"
-                documents.append(doc_text)
+            <div class="chat-section" id="chatSection">
+                <h3>💬 Chat About Your Video</h3>
+                <div class="analysis-results" id="analysisResults"></div>
+                <div class="chat-container" id="chatContainer"></div>
+                <div class="input-group">
+                    <input type="text" id="messageInput" placeholder="Ask questions about your video..." onkeypress="handleKeyPress(event)">
+                    <button onclick="sendMessage()">Send</button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let currentSessionId = null;
+            let analysisData = null;
+
+            async function uploadVideo() {
+                const fileInput = document.getElementById('videoFile');
+                const file = fileInput.files[0];
                 
-                # Create metadata
-                metadata = {
-                    "video_path": video_path,
-                    "video_name": Path(video_path).stem,
-                    "event_name": event['event'],
-                    "start_time": event['start'],
-                    "end_time": event['end'],
-                    "description": event['description'],
-                    "session_id": self.session_id or "default",
-                    "timestamp": datetime.now().isoformat()
+                if (!file) {
+                    alert('Please select a video file');
+                    return;
                 }
-                metadatas.append(metadata)
                 
-                # Create unique ID
-                ids.append(f"{Path(video_path).stem}_{i}_{uuid.uuid4().hex[:8]}")
+                const statusDiv = document.getElementById('uploadStatus');
+                statusDiv.innerHTML = '<div class="loading">🔄 Analyzing video... This may take a few minutes.</div>';
+                
+                const formData = new FormData();
+                formData.append('video', file);
+                
+                try {
+                    const response = await fetch('/analyze-video', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                        currentSessionId = result.session_id;
+                        analysisData = result.analysis;
+                        displayAnalysisResults(result.analysis);
+                        document.getElementById('chatSection').style.display = 'block';
+                        statusDiv.innerHTML = '<div style="color: green;">✅ Analysis complete! You can now chat about your video.</div>';
+                    } else {
+                        statusDiv.innerHTML = '<div style="color: red;">❌ Error: ' + result.detail + '</div>';
+                    }
+                } catch (error) {
+                    statusDiv.innerHTML = '<div style="color: red;">❌ Upload failed: ' + error.message + '</div>';
+                }
+            }
             
-            # Add to ChromaDB
-            embeddings = embedder.encode(documents).tolist()
-            collection.add(
-                embeddings=embeddings,
-                documents=documents,
-                metadatas=metadatas,
-                ids=ids
-            )
+            function displayAnalysisResults(analysis) {
+                const resultsDiv = document.getElementById('analysisResults');
+                let html = '<h4>📊 Video Analysis Results</h4>';
+                
+                if (analysis.events && analysis.events.length > 0) {
+                    html += '<h5>🎯 Detected Events:</h5>';
+                    analysis.events.forEach(event => {
+                        html += `
+                            <div class="event-item">
+                                <strong>${event.name}</strong> (${event.start} - ${event.end})
+                                ${event.description ? '<br><em>' + event.description + '</em>' : ''}
+                            </div>
+                        `;
+                    });
+                } else {
+                    html += '<p>No specific events detected in this video.</p>';
+                }
+                
+                if (analysis.summary) {
+                    html += '<h5>📋 Summary:</h5><p>' + analysis.summary + '</p>';
+                }
+                
+                resultsDiv.innerHTML = html;
+            }
             
-            logger.info(f"Successfully stored {len(events)} video segments")
-            return True
+            async function sendMessage() {
+                const input = document.getElementById('messageInput');
+                const message = input.value.trim();
+                
+                if (!message) return;
+                
+                // Add user message to chat
+                addMessageToChat(message, 'user');
+                input.value = '';
+                
+                try {
+                    const response = await fetch('/chat', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            message: message,
+                            session_id: currentSessionId,
+                            user_id: 'demo_user'
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                        addMessageToChat(result.response, 'assistant');
+                    } else {
+                        addMessageToChat('Error: ' + result.detail, 'assistant');
+                    }
+                } catch (error) {
+                    addMessageToChat('Error: ' + error.message, 'assistant');
+                }
+            }
             
-        except Exception as e:
-            logger.error(f"Error processing video: {e}")
-            return False
+            function addMessageToChat(message, sender) {
+                const chatContainer = document.getElementById('chatContainer');
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${sender}-message`;
+                messageDiv.textContent = message;
+                chatContainer.appendChild(messageDiv);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+            
+            function handleKeyPress(event) {
+                if (event.key === 'Enter') {
+                    sendMessage();
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """
+
+@app.post("/analyze-video")
+async def analyze_video(video: UploadFile = File(...)):
+    """Analyze uploaded video for events and content"""
     
-    def start_new_session(self, title: str = None) -> str:
-        """
-        Start a new chat session
-        """
-        session_id = f"session_{uuid.uuid4().hex[:8]}"
-        session_title = title or f"Video Analysis - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    if not video.content_type.startswith('video/'):
+        raise HTTPException(status_code=400, detail="File must be a video")
+    
+    # Create temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
+        content = await video.read()
+        tmp_file.write(content)
+        tmp_path = tmp_file.name
+    
+    try:
+        # Generate session ID
+        session_id = str(uuid.uuid4())
         
-        try:
-            create_new_session(self.user_name, session_id, session_title)
-            self.session_id = session_id
-            logger.info(f"Started new session: {session_title} (ID: {session_id})")
-            return session_id
-        except Exception as e:
-            logger.warning(f"Could not create session in DB: {e}")
-            self.session_id = session_id
-            return session_id
-    
-    def chat(self, query: str) -> str:
-        """
-        Process a chat query with context retrieval
-        """
-        if not self.session_id:
-            self.start_new_session()
+        # Process video
+        analysis_result = await video_processor.analyze_video(tmp_path)
         
-        try:
-            # Step 1: Retrieve relevant context from ChromaDB
-            logger.info("Searching for relevant video segments")
-            contexts = retrieve_context(
-                query=query, 
-                collection_name=self.collection_name,
-                session_id=self.session_id,
-                k=3
-            )
-            
-            if not contexts['documents'][0]:
-                response = "I don't have any video content to analyze for your question. Please process a video first using the 'process_video' command."
-            else:
-                # Step 2: Load chat history for context
-                chat_history = load_chat_history(self.user_name, self.session_id, limit=6)
-                
-                # Step 3: Generate response using LLM + RAG
-                logger.info("Generating response with open-source LLM")
-                response = ask_model(contexts, query, chat_history)
-            
-            # Step 4: Save to chat history
-            try:
-                save_chat_to_db(self.user_name, query, response, self.session_id)
-            except Exception as e:
-                logger.warning(f"Could not save to chat history: {e}")
-            
-            return response
-            
-        except Exception as e:
-            error_msg = f"I encountered an error while processing your question: {e}"
-            logger.error(error_msg)
-            return error_msg
-    
-    def list_sessions(self):
-        """
-        List all chat sessions for the user
-        """
-        try:
-            sessions = get_user_sessions(self.user_name)
-            if sessions:
-                logger.info(f"Chat Sessions for {self.user_name}:")
-                for session in sessions:
-                    logger.info(f"  - {session['title']} (ID: {session['session_id']})")
-                    if session['last_used']:
-                        logger.info(f"    Last used: {session['last_used']}")
-            else:
-                logger.info("No chat sessions found")
-        except Exception as e:
-            logger.error(f"Error retrieving sessions: {e}")
+        # Cache results
+        analysis_cache[session_id] = {
+            'analysis': analysis_result,
+            'video_path': tmp_path,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Create chat session
+        create_new_session("demo_user", session_id, f"Video Analysis - {video.filename}")
+        
+        return JSONResponse({
+            "session_id": session_id,
+            "analysis": analysis_result,
+            "message": "Video analysis completed successfully"
+        })
+        
+    except Exception as e:
+        # Clean up temporary file
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
-def main():
-    """
-    Main function with CLI interface
-    """
-    parser = argparse.ArgumentParser(
-        description="Visual Understanding Chat Assistant for Video Analysis",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python main.py --video /path/to/video.mp4 --interactive
-  python main.py --query "What traffic violations did you see?"
-  python main.py --demo
-        """
-    )
-    
-    parser.add_argument("--video", "-v", help="Path to video file to process")
-    parser.add_argument("--query", "-q", help="Ask a question about processed videos")
-    parser.add_argument("--interactive", "-i", action="store_true", help="Start interactive chat mode")
-    parser.add_argument("--demo", action="store_true", help="Run demo with sample interactions")
-    parser.add_argument("--user", default="hackathon_user", help="User name for chat sessions")
-    parser.add_argument("--session", help="Session ID to continue previous chat")
-    
-    args = parser.parse_args()
-    
-    # Initialize assistant
-    assistant = VideoUnderstandingAssistant(user_name=args.user)
-    
-    # Set session if provided
-    if args.session:
-        assistant.session_id = args.session
-    
-    # Process video if provided
-    if args.video:
-        success = assistant.process_video(args.video)
-        if not success:
-            return 1
-    
-    # Handle different modes
-    if args.demo:
-        run_demo(assistant)
-    elif args.query:
-        response = assistant.chat(args.query)
-        print(f"\nAssistant: {response}")
-    elif args.interactive:
-        run_interactive_mode(assistant)
-    else:
-        logger.info("Use --help to see available options")
-        return 1
-    
-    return 0
+class ChatRequest(BaseModel):
+    message: str
+    session_id: str
+    user_id: str = "demo_user"
 
-def run_demo(assistant):
-    """
-    Run a demonstration of the system capabilities
-    """
-    logger.info("DEMO MODE - Visual Understanding Chat Assistant")
-    logger.info("=" * 60)
+@app.post("/chat")
+async def chat_with_assistant(request: ChatRequest):
+    """Handle chat conversations about the analyzed video"""
     
-    # Check if we have any video to demonstrate with
-    demo_queries = [
-        "What events did you detect in the video?",
-        "Were there any traffic violations?",
-        "Can you describe what happened around the 30-second mark?",
-        "What safety issues did you observe?",
-        "Summarize the main events in chronological order"
-    ]
+    if request.session_id not in analysis_cache:
+        raise HTTPException(status_code=404, detail="Session not found. Please upload a video first.")
     
-    logger.info("Demo queries that you can try:")
-    for i, query in enumerate(demo_queries, 1):
-        logger.info(f"{i}. {query}")
-    
-    logger.info("Note: Process a video first using --video option, then try these queries!")
+    try:
+        # Get cached analysis
+        cached_data = analysis_cache[request.session_id]
+        analysis_result = cached_data['analysis']
+        
+        # Load chat history
+        chat_history = load_chat_history(request.user_id, request.session_id, limit=10)
+        
+        # Generate response using chat handler
+        response = await chat_handler.generate_response(
+            query=request.message,
+            analysis_context=analysis_result,
+            chat_history=chat_history,
+            session_id=request.session_id
+        )
+        
+        # Save to database
+        save_chat_to_db(request.user_id, request.message, response, request.session_id)
+        
+        return JSONResponse({
+            "response": response,
+            "session_id": request.session_id
+        })
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
 
-def run_interactive_mode(assistant):
-    """
-    Run interactive chat mode
-    """
-    logger.info("INTERACTIVE MODE")
-    logger.info("Commands:")
-    logger.info("  'process <video_path>' - Process a new video")
-    logger.info("  'sessions' - List chat sessions")
-    logger.info("  'quit' or 'exit' - Exit the program")
-    logger.info("  Any other text - Ask a question about the videos")
-    logger.info("-" * 40)
-    
-    while True:
-        try:
-            user_input = input("\nYou: ").strip()
-            
-            if user_input.lower() in ['quit', 'exit', 'q']:
-                print("Goodbye!")
-                break
-            elif user_input.startswith('process '):
-                video_path = user_input[8:].strip()
-                assistant.process_video(video_path)
-            elif user_input.lower() == 'sessions':
-                assistant.list_sessions()
-            elif user_input:
-                response = assistant.chat(user_input)
-                print(f"\nAssistant: {response}")
-            else:
-                print("Please enter a question or command.")
-                
-        except KeyboardInterrupt:
-            print("\nGoodbye!")
-            break
-        except Exception as e:
-            logger.error(f"Error: {e}")
+@app.get("/sessions/{user_id}")
+async def get_user_chat_sessions(user_id: str):
+    """Get all chat sessions for a user"""
+    sessions = get_user_sessions(user_id)
+    return JSONResponse({"sessions": sessions})
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy", "message": "Visual Understanding Chat Assistant is running"}
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Create static directory if it doesn't exist
+    os.makedirs("static", exist_ok=True)
+    
+    print("🚀 Starting Visual Understanding Chat Assistant...")
+    print("📹 VLM Server: http://localhost:8000")
+    print("🤖 LLM Server: http://localhost:8001") 
+    print("🌐 Web Interface: http://localhost:8002")
+    
+    uvicorn.run(app, host="0.0.0.0", port=8002)
