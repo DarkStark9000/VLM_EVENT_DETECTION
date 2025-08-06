@@ -353,7 +353,7 @@ This project uses open-source models and libraries:
 
 ## Contributors
 
-- **Team Members**: [Your team names here]
+- **Team Members**: ARYAN SAKHALA, DEBARSHI DAS, DIVY SAKHALA
 - **Hackathon**: Visual Understanding Chat Assistant - Round 1
 - **Date**: January 2025
 
