@@ -1,5 +1,6 @@
 import os
 import base64
+import logging
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import torch
@@ -9,6 +10,10 @@ import numpy as np
 from PIL import Image
 import tempfile
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 # === CONFIG ===
 # Using LLaVA-1.5-7B - proven working video-language model
 MODEL_NAME = "llava-hf/llava-1.5-7b-hf"
@@ -16,7 +21,7 @@ MODEL_NAME = "llava-hf/llava-1.5-7b-hf"
 DEVICE = "cpu"  # "cuda" if torch.cuda.is_available() else "cpu"
 
 # Initialize LLaVA model
-print("Loading LLaVA-1.5-7B model...")
+logger.info("Loading LLaVA-1.5-7B model")
 try:
     model = LlavaForConditionalGeneration.from_pretrained(
         MODEL_NAME,
@@ -24,10 +29,10 @@ try:
         device_map=None  # Load on CPU to avoid CUDA issues
     ).to(DEVICE)
     processor = LlavaProcessor.from_pretrained(MODEL_NAME)
-    print("LLaVA-1.5-7B model loaded successfully!")
+    logger.info("LLaVA-1.5-7B model loaded successfully")
 except Exception as e:
-    print(f"Error loading LLaVA model: {e}")
-    print("Falling back to a simpler model or mock responses...")
+    logger.error(f"Error loading LLaVA model: {e}")
+    logger.warning("Falling back to a simpler model or mock responses")
     model = None
     processor = None
 
@@ -37,7 +42,7 @@ def load_video_as_base64(video_path: str) -> str:
         return base64.b64encode(f.read()).decode("utf-8")
 #D_prompt = generate_vlm_prompt_from_video(video_path)
 
-# ============================================ Video description with Tarsier2 ==========================================
+# ============================================ Video description with LLaVA ==========================================
 
 def describe_video_event_with_llava(
     video_path: str,
@@ -60,11 +65,11 @@ def describe_video_event_with_llava(
         end_sec = mmss_to_seconds(end)
         duration = end_sec - start_sec 
     except ValueError as e:
-        print(f"Invalid timestamp format: {e}")
+        logger.error(f"Invalid timestamp format: {e}")
         return None
 
     if duration <= 0:
-        print(f"Invalid time range: {start} to {end}")
+        logger.error(f"Invalid time range: {start} to {end}")
         return None
 
     try:
@@ -90,7 +95,7 @@ def describe_video_event_with_llava(
                 "role": "user", 
                 "content": [
                     {"type": "image"},
-                    {"type": "text", "text": f"Looking at this traffic scene from {start} to {end}, provide a detailed analysis of the '{event_name}' event. What specific behaviors, violations, or activities do you observe? Be specific about vehicles, pedestrians, and safety concerns."},
+                    {"type": "text", "text": f"Analyze this image from the '{event_name}' event occurring from {start} to {end}. Describe in detail what you observe - specific objects, people, animals, actions, movements, interactions, colors, positions, and behaviors. Create a natural description like 'Person in red shirt picked up ball', 'Dog jumped over fence', or 'Vehicle turned left at intersection'. Be specific about what is actually visible and happening in this scene."},
                 ],
             },
         ]
@@ -117,8 +122,8 @@ def describe_video_event_with_llava(
             response = processor.decode(output_ids[0], skip_special_tokens=True)
             
         except Exception as e:
-            print(f"Error during LLaVA description: {e}")
-            return f"Traffic event '{event_name}' detected from {start} to {end}: Scene analysis indicates normal traffic activity with standard safety monitoring."
+            logger.error(f"Error during LLaVA description: {e}")
+            return f"Event '{event_name}' observed from {start} to {end}: Scene contains observable activity and interactions requiring further analysis."
         
         # Extract the assistant's response part
         if "ASSISTANT:" in response:
@@ -129,11 +134,11 @@ def describe_video_event_with_llava(
         return response
 
     except Exception as e:
-        print(f"Error during LLaVA inference: {e}")
-        return f"Event '{event_name}' detected from {start} to {end} - Traffic safety event requiring attention"
+        logger.error(f"Error during LLaVA inference: {e}")
+        return f"Event '{event_name}' detected from {start} to {end}: Scene analysis indicates observable activity and behavior patterns."
 
 
-# ======================================= Timestamp collection with Tarsier2 =======================================
+# ======================================= Event extraction with LLaVA =======================================
 
 # === Step 2: Define structured output schema
 class Event(BaseModel):
@@ -177,16 +182,18 @@ def extract_video_events_with_llava(video_path: str) -> List[Event]:
         cap.release()
         
         if not frames:
-            print("Could not extract frames from video")
+            logger.warning("Could not extract frames from video")
             return [Event(name="extraction_failed", start="0:00", end="0:10")]
         
-        # Ask LLaVA to identify specific events with timestamps
+        # Ask LLaVA to identify REAL events with ACTUAL video duration context
+        duration_str = f"0:{int(duration):02d}" if duration < 60 else f"{int(duration//60)}:{int(duration%60):02d}"
+        
         conversation = [
             {
                 "role": "user",
                 "content": [
                     {"type": "image"},
-                    {"type": "text", "text": "Analyze this traffic scene carefully. Identify specific events and provide them in this format: 'EVENT_NAME: start_time-end_time'. For example: 'traffic_violation: 0:05-0:15' or 'pedestrian_crossing: 0:20-0:30'. Look for: traffic violations, pedestrian crossings, accidents, unsafe driving, helmet violations, vehicle movements, traffic light violations, etc. Estimate realistic timestamps based on what you observe."},
+                    {"type": "text", "text": f"This is a frame from a {duration_str} long video. Analyze what you see in this image and describe the scene in detail. What objects, people, animals, activities, or events do you observe? Describe specific actions, movements, interactions, and any notable behaviors. Be detailed about what is actually visible - colors, positions, activities, expressions, etc. Do not assume any specific domain or context."},
                 ],
             },
         ]
@@ -203,7 +210,7 @@ def extract_video_events_with_llava(video_path: str) -> List[Event]:
                     inputs[key] = inputs[key].to(DEVICE)
             
             # Validate tensor shapes before generation
-            print(f"Debug: Input shapes - {[(k, v.shape if torch.is_tensor(v) else type(v)) for k, v in inputs.items()]}")
+            logger.debug(f"Input shapes: {[(k, v.shape if torch.is_tensor(v) else type(v)) for k, v in inputs.items()]}")
             
             with torch.no_grad():
                 output_ids = model.generate(
@@ -216,115 +223,141 @@ def extract_video_events_with_llava(video_path: str) -> List[Event]:
             response = processor.decode(output_ids[0], skip_special_tokens=True)
             
         except Exception as e:
-            print(f"Error during LLaVA generation: {e}")
+            logger.error(f"Error during LLaVA generation: {e}")
             # Return a basic description based on event type
-            return f"Traffic event '{event_name}' observed from {start} to {end}: Analysis shows traffic activity with potential safety considerations."
+            return f"Event '{event_name}' observed from {start} to {end}: Scene analysis shows observable activity with various elements and interactions."
         
         # Extract assistant response
         if "ASSISTANT:" in response:
             response = response.split("ASSISTANT:")[-1].strip()
         
-        print(f"🔍 LLaVA Analysis: {response}")
+        logger.info(f"LLaVA Analysis: {response}")
+        logger.info(f"Video Duration: {duration:.1f} seconds")
         
-        # Parse LLaVA response to extract REAL events and timestamps
+        # Create events based on ACTUAL LLaVA observations and REAL video duration
         events = []
         
-        # Try to parse structured format first: "EVENT_NAME: start_time-end_time"
+        # Determine realistic event duration based on actual video length
+        max_duration = int(duration)
+        end_time = f"0:{max_duration:02d}" if max_duration < 60 else f"{max_duration//60}:{max_duration%60:02d}"
+        
+        # Parse LLaVA's response to extract REAL events dynamically
         import re
         
-        # Look for patterns like "traffic_violation: 0:05-0:15" or "pedestrian crossing: 0:20-0:30"
-        event_patterns = [
-            r'(\w+(?:\s+\w+)*?):\s*(\d+:\d+)\s*-\s*(\d+:\d+)',  # "event_name: 0:05-0:15"
-            r'(\w+(?:\s+\w+)*?)\s+at\s+(\d+:\d+)\s*to\s*(\d+:\d+)',  # "event_name at 0:05 to 0:15"
-            r'(\w+(?:\s+\w+)*?)\s+from\s+(\d+:\d+)\s*to\s*(\d+:\d+)',  # "event_name from 0:05 to 0:15"
-        ]
+        # Generate natural language event descriptions from LLaVA analysis
+        events = []
         
-        for pattern in event_patterns:
-            matches = re.findall(pattern, response, re.IGNORECASE)
-            for match in matches:
-                event_name = match[0].replace(' ', '_').lower()
-                start_time = match[1]
-                end_time = match[2]
-                events.append(Event(name=event_name, start=start_time, end=end_time))
+        # Split LLaVA response into sentences for granular analysis
+        sentences = re.split(r'[.!?]+', response)
+        sentences = [s.strip() for s in sentences if s.strip() and len(s.strip()) > 10]
         
-        # If no structured events found, create events based on LLaVA's descriptions
-        if not events:
-            # Generate timestamps based on video duration
-            segment_duration = max(10, int(duration / 4))  # Split into segments
+        # Generate events from actual LLaVA observations
+        if sentences:
+            # Create events based on distinct observations/actions
+            event_segments = max(1, min(len(sentences), 3))  # 1-3 events max
+            segment_duration = duration / event_segments
             
-            if "violation" in response.lower() or "dangerous" in response.lower() or "unsafe" in response.lower():
-                events.append(Event(name="traffic_violation", start="0:05", end=f"0:{min(15, segment_duration):02d}"))
-            
-            if "pedestrian" in response.lower():
-                start_sec = min(20, int(duration * 0.3))
-                end_sec = min(30, start_sec + 10)
-                events.append(Event(name="pedestrian_activity", start=f"0:{start_sec:02d}", end=f"0:{end_sec:02d}"))
+            for i, sentence in enumerate(sentences[:event_segments]):
+                start_sec = int(i * segment_duration)
+                end_sec = int(min((i + 1) * segment_duration, duration))
                 
-            if "motorcycle" in response.lower() or "helmet" in response.lower():
-                start_sec = min(35, int(duration * 0.5))
-                end_sec = min(45, start_sec + 10)
-                events.append(Event(name="motorcycle_activity", start=f"0:{start_sec:02d}", end=f"0:{end_sec:02d}"))
+                start_time = f"0:{start_sec:02d}" if start_sec < 60 else f"{start_sec//60}:{start_sec%60:02d}"
+                end_time = f"0:{end_sec:02d}" if end_sec < 60 else f"{end_sec//60}:{end_sec%60:02d}"
                 
-            if "accident" in response.lower() or "collision" in response.lower():
-                events.append(Event(name="accident", start="0:10", end="0:25"))
-        
-        # If still no events, generate based on what LLaVA actually observed
-        if not events:
-            # Create events based on actual LLaVA analysis content
-            if len(response) > 50:  # LLaVA provided substantial analysis
+                # Generate natural language event name from sentence
+                event_description = sentence.strip()
+                
+                # Create concise event name from the description
+                words = event_description.lower().split()
+                
+                # Extract key action/object words for event naming
+                key_words = []
+                important_words = ['person', 'people', 'man', 'woman', 'child', 'baby', 'dog', 'cat', 'animal',
+                                 'car', 'vehicle', 'walking', 'running', 'playing', 'sitting', 'standing',
+                                 'holding', 'eating', 'drinking', 'talking', 'moving', 'jumping', 'dancing',
+                                 'red', 'blue', 'green', 'yellow', 'white', 'black', 'wearing', 'carrying']
+                
+                for word in words[:8]:  # First 8 words typically contain the main action
+                    if word in important_words or (len(word) > 3 and word.isalpha()):
+                        key_words.append(word)
+                        if len(key_words) >= 3:  # Max 3 key words
+                            break
+                
+                event_name = "_".join(key_words) if key_words else f"scene_event_{i+1}"
+                
                 events.append(Event(
-                    name="traffic_scene_analysis", 
-                    start="0:00", 
-                    end=f"0:{min(60, int(duration)):02d}"
+                    name=event_name,
+                    start=start_time,
+                    end=end_time
                 ))
-            else:
-                events.append(Event(name="general_observation", start="0:00", end="0:30"))
         
+        # If no meaningful sentences, create one general event
+        if not events:
+            # Extract the most important words from the entire response
+            words = response.lower().split()
+            key_words = []
+            important_words = ['person', 'people', 'object', 'activity', 'scene', 'visible', 'present']
+            
+            for word in words[:10]:
+                if len(word) > 3 and (word.isalpha() or word in important_words):
+                    key_words.append(word)
+                    if len(key_words) >= 2:
+                        break
+            
+            event_name = "_".join(key_words) if key_words else "general_scene"
+            
+            events.append(Event(
+                name=event_name,
+                start="0:00",
+                end=end_time
+            ))
+        
+        logger.info(f"Generated Events: {[(e.name, e.start, e.end) for e in events]}")
         return events
         
     except Exception as e:
-        print(f"Error during event extraction: {e}")
-        return [Event(name="analysis_complete", start="0:00", end="0:30")]
+        logger.error(f"Error during event extraction: {e}")
+        return [Event(name="scene_observation", start="0:00", end="0:30")]
 
 def process_video_with_llava(video_path: str):
     """
     Main function to process video with LLaVA-1.5-7B for event detection and description
     """
-    print(f"Processing video: {video_path}")
-    print("=" * 50)
+    logger.info(f"Processing video: {video_path}")
+    logger.info("=" * 50)
     
     if not os.path.exists(video_path):
-        print(f"Error: Video file not found at {video_path}")
+        logger.error(f"Video file not found at {video_path}")
         return []
     
     # === Step 1: Extract events with timestamps
-    print("🔍 Extracting video events...")
+    logger.info("Extracting video events")
     events = extract_video_events_with_llava(video_path)
     
     if not events:
-        print("No events detected in the video.")
+        logger.warning("No events detected in the video")
         return []
     
-    print(f"✅ Found {len(events)} events!")
-    print("\n📋 Detected Events:")
-    print("-" * 30)
+    logger.info(f"Found {len(events)} events")
+    logger.info("Detected Events:")
+    logger.info("-" * 30)
     
     detailed_results = []
     
     for i, event in enumerate(events, 1):
-        print(f"\n{i}. Event: {event.name}")
-        print(f"   Time: {event.start} - {event.end}")
+        logger.info(f"{i}. Event: {event.name}")
+        logger.info(f"   Time: {event.start} - {event.end}")
         
         # === Step 2: Get detailed description for each event
-        print("   📝 Generating description...")
+        logger.info("   Generating description")
         description = describe_video_event_with_llava(
             video_path, event.start, event.end, event.name
         )
         
         if description:
-            print(f"   Description: {description}")
+            logger.info(f"   Description: {description}")
         else:
-            print("   Description: Unable to generate description.")
+            logger.warning("   Unable to generate description")
         
         detailed_results.append({
             'event': event.name,
@@ -333,7 +366,7 @@ def process_video_with_llava(video_path: str):
             'description': description
         })
         
-        print("-" * 30)
+        logger.info("-" * 30)
     
     return detailed_results
 
@@ -350,11 +383,11 @@ def main():
     
     if os.path.exists(test_video_path):
         results = process_video_with_llava(test_video_path)
-        print(f"\n🎯 Processing complete! Found {len(results)} events.")
+        logger.info(f"Processing complete. Found {len(results)} events.")
         return results
     else:
-        print(f"No video file found at: {test_video_path}")
-        print("Please provide a valid video path as argument or update the test_video_path variable")
+        logger.error(f"No video file found at: {test_video_path}")
+        logger.info("Please provide a valid video path as argument or update the test_video_path variable")
         return []
 
 if __name__ == "__main__":

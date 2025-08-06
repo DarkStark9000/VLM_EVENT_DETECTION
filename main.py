@@ -14,8 +14,13 @@ import os
 import sys
 import argparse
 import uuid
+import logging
 from datetime import datetime
 from pathlib import Path
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Import our custom modules
 from vlm import process_video_with_llava, Event
@@ -38,36 +43,36 @@ class VideoUnderstandingAssistant:
         self.session_id = None
         self.collection_name = "video_segments"
         
-        print("🚀 Visual Understanding Chat Assistant - Round 1")
-        print("=" * 60)
-        print("Features:")
-        print("✅ Video Event Recognition & Summarization")
-        print("✅ Multi-turn Conversations with Context")
-        print("✅ Open-source Models (LLaVA-1.5-7B + Phi-3.5)")
-        print("✅ RAG-based Video Content Retrieval")
-        print("=" * 60)
+        logger.info("Visual Understanding Chat Assistant - Round 1")
+        logger.info("=" * 60)
+        logger.info("Features:")
+        logger.info("- Video Event Recognition & Summarization")
+        logger.info("- Multi-turn Conversations with Context")
+        logger.info("- Open-source Models (LLaVA-1.5-7B + Phi-3.5)")
+        logger.info("- RAG-based Video Content Retrieval")
+        logger.info("=" * 60)
         
     def process_video(self, video_path: str) -> bool:
         """
         Process a video file and store segments in ChromaDB
         """
-        print(f"\n📹 Processing video: {video_path}")
+        logger.info(f"Processing video: {video_path}")
         
         if not os.path.exists(video_path):
-            print(f"❌ Error: Video file not found at {video_path}")
+            logger.error(f"Video file not found at {video_path}")
             return False
         
         try:
             # Step 1: Extract events using LLaVA
-            print("🔍 Analyzing video with LLaVA-1.5-7B...")
+            logger.info("Analyzing video with LLaVA-1.5-7B")
             events = process_video_with_llava(video_path)
             
             if not events:
-                print("⚠️ No events detected in the video")
+                logger.warning("No events detected in the video")
                 return False
             
             # Step 2: Store in ChromaDB for retrieval
-            print("💾 Storing video segments in ChromaDB...")
+            logger.info("Storing video segments in ChromaDB")
             collection = chroma_client.get_or_create_collection(name=self.collection_name)
             
             documents = []
@@ -104,11 +109,11 @@ class VideoUnderstandingAssistant:
                 ids=ids
             )
             
-            print(f"✅ Successfully stored {len(events)} video segments")
+            logger.info(f"Successfully stored {len(events)} video segments")
             return True
             
         except Exception as e:
-            print(f"❌ Error processing video: {e}")
+            logger.error(f"Error processing video: {e}")
             return False
     
     def start_new_session(self, title: str = None) -> str:
@@ -121,10 +126,10 @@ class VideoUnderstandingAssistant:
         try:
             create_new_session(self.user_name, session_id, session_title)
             self.session_id = session_id
-            print(f"📝 Started new session: {session_title} (ID: {session_id})")
+            logger.info(f"Started new session: {session_title} (ID: {session_id})")
             return session_id
         except Exception as e:
-            print(f"⚠️ Warning: Could not create session in DB: {e}")
+            logger.warning(f"Could not create session in DB: {e}")
             self.session_id = session_id
             return session_id
     
@@ -137,7 +142,7 @@ class VideoUnderstandingAssistant:
         
         try:
             # Step 1: Retrieve relevant context from ChromaDB
-            print(f"🔍 Searching for relevant video segments...")
+            logger.info("Searching for relevant video segments")
             contexts = retrieve_context(
                 query=query, 
                 collection_name=self.collection_name,
@@ -152,20 +157,20 @@ class VideoUnderstandingAssistant:
                 chat_history = load_chat_history(self.user_name, self.session_id, limit=6)
                 
                 # Step 3: Generate response using LLM + RAG
-                print("🧠 Generating response with open-source LLM...")
+                logger.info("Generating response with open-source LLM")
                 response = ask_model(contexts, query, chat_history)
             
             # Step 4: Save to chat history
             try:
                 save_chat_to_db(self.user_name, query, response, self.session_id)
             except Exception as e:
-                print(f"⚠️ Warning: Could not save to chat history: {e}")
+                logger.warning(f"Could not save to chat history: {e}")
             
             return response
             
         except Exception as e:
             error_msg = f"I encountered an error while processing your question: {e}"
-            print(f"❌ Error: {error_msg}")
+            logger.error(error_msg)
             return error_msg
     
     def list_sessions(self):
@@ -175,15 +180,15 @@ class VideoUnderstandingAssistant:
         try:
             sessions = get_user_sessions(self.user_name)
             if sessions:
-                print(f"\n📋 Chat Sessions for {self.user_name}:")
+                logger.info(f"Chat Sessions for {self.user_name}:")
                 for session in sessions:
-                    print(f"  • {session['title']} (ID: {session['session_id']})")
+                    logger.info(f"  - {session['title']} (ID: {session['session_id']})")
                     if session['last_used']:
-                        print(f"    Last used: {session['last_used']}")
+                        logger.info(f"    Last used: {session['last_used']}")
             else:
-                print("No chat sessions found.")
+                logger.info("No chat sessions found")
         except Exception as e:
-            print(f"❌ Error retrieving sessions: {e}")
+            logger.error(f"Error retrieving sessions: {e}")
 
 def main():
     """
@@ -227,11 +232,11 @@ Examples:
         run_demo(assistant)
     elif args.query:
         response = assistant.chat(args.query)
-        print(f"\n🤖 Assistant: {response}")
+        print(f"\nAssistant: {response}")
     elif args.interactive:
         run_interactive_mode(assistant)
     else:
-        print("Use --help to see available options")
+        logger.info("Use --help to see available options")
         return 1
     
     return 0
@@ -240,8 +245,8 @@ def run_demo(assistant):
     """
     Run a demonstration of the system capabilities
     """
-    print("\n🎬 DEMO MODE - Visual Understanding Chat Assistant")
-    print("=" * 60)
+    logger.info("DEMO MODE - Visual Understanding Chat Assistant")
+    logger.info("=" * 60)
     
     # Check if we have any video to demonstrate with
     demo_queries = [
@@ -252,30 +257,30 @@ def run_demo(assistant):
         "Summarize the main events in chronological order"
     ]
     
-    print("Demo queries that you can try:")
+    logger.info("Demo queries that you can try:")
     for i, query in enumerate(demo_queries, 1):
-        print(f"{i}. {query}")
+        logger.info(f"{i}. {query}")
     
-    print("\n📝 Note: Process a video first using --video option, then try these queries!")
+    logger.info("Note: Process a video first using --video option, then try these queries!")
 
 def run_interactive_mode(assistant):
     """
     Run interactive chat mode
     """
-    print("\n💬 INTERACTIVE MODE")
-    print("Commands:")
-    print("  'process <video_path>' - Process a new video")
-    print("  'sessions' - List chat sessions")
-    print("  'quit' or 'exit' - Exit the program")
-    print("  Any other text - Ask a question about the videos")
-    print("-" * 40)
+    logger.info("INTERACTIVE MODE")
+    logger.info("Commands:")
+    logger.info("  'process <video_path>' - Process a new video")
+    logger.info("  'sessions' - List chat sessions")
+    logger.info("  'quit' or 'exit' - Exit the program")
+    logger.info("  Any other text - Ask a question about the videos")
+    logger.info("-" * 40)
     
     while True:
         try:
-            user_input = input("\n👤 You: ").strip()
+            user_input = input("\nYou: ").strip()
             
             if user_input.lower() in ['quit', 'exit', 'q']:
-                print("👋 Goodbye!")
+                print("Goodbye!")
                 break
             elif user_input.startswith('process '):
                 video_path = user_input[8:].strip()
@@ -284,15 +289,15 @@ def run_interactive_mode(assistant):
                 assistant.list_sessions()
             elif user_input:
                 response = assistant.chat(user_input)
-                print(f"\n🤖 Assistant: {response}")
+                print(f"\nAssistant: {response}")
             else:
                 print("Please enter a question or command.")
                 
         except KeyboardInterrupt:
-            print("\n👋 Goodbye!")
+            print("\nGoodbye!")
             break
         except Exception as e:
-            print(f"❌ Error: {e}")
+            logger.error(f"Error: {e}")
 
 if __name__ == "__main__":
     sys.exit(main())

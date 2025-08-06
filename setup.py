@@ -6,21 +6,26 @@ Setup script for Visual Understanding Chat Assistant
 import subprocess
 import sys
 import os
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def install_requirements():
     """Install required packages"""
-    print("🔧 Installing requirements...")
+    logger.info("Installing requirements")
     try:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
-        print("✅ Requirements installed successfully!")
+        logger.info("Requirements installed successfully")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error installing requirements: {e}")
+        logger.error(f"Error installing requirements: {e}")
         return False
 
 def setup_directories():
     """Create necessary directories"""
-    print("📁 Setting up directories...")
+    logger.info("Setting up directories")
     directories = [
         "input_videos",
         "temp_videos", 
@@ -30,9 +35,9 @@ def setup_directories():
     
     for directory in directories:
         os.makedirs(directory, exist_ok=True)
-        print(f"  ✓ Created {directory}/")
+        logger.info(f"Created {directory}/")
     
-    print("✅ Directories created!")
+    logger.info("Directories created")
 
 def check_python_version():
     """Check if Python version is compatible"""

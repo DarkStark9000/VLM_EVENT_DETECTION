@@ -4,8 +4,13 @@ Configuration management for Visual Understanding Chat Assistant
 
 import os
 import json
+import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class Config:
     """
@@ -25,7 +30,7 @@ class Config:
                 with open(self.config_file, 'r') as f:
                     return json.load(f)
             except Exception as e:
-                print(f"Error loading config file: {e}")
+                logger.error(f"Error loading config file: {e}")
                 return self.get_default_config()
         else:
             config = self.get_default_config()
@@ -43,7 +48,7 @@ class Config:
             with open(self.config_file, 'w') as f:
                 json.dump(config, f, indent=2)
         except Exception as e:
-            print(f"Error saving config file: {e}")
+            logger.error(f"Error saving config file: {e}")
     
     def get_default_config(self) -> Dict[str, Any]:
         """
@@ -149,7 +154,7 @@ class Config:
             file_size = os.path.getsize(video_path)
             max_size = self.get('video.max_size_mb', 500) * 1024 * 1024  # Default 500MB
             if file_size > max_size:
-                print(f"Warning: Video file is large ({file_size / (1024*1024):.1f}MB)")
+                logger.warning(f"Video file is large ({file_size / (1024*1024):.1f}MB)")
         except:
             pass
         
@@ -201,9 +206,9 @@ class Config:
             if directory and not os.path.exists(directory):
                 try:
                     os.makedirs(directory, exist_ok=True)
-                    print(f"Created directory: {directory}")
+                    logger.info(f"Created directory: {directory}")
                 except Exception as e:
-                    print(f"Warning: Could not create directory {directory}: {e}")
+                    logger.warning(f"Could not create directory {directory}: {e}")
 
 # Global configuration instance
 config = Config()

@@ -13,7 +13,12 @@ This script demonstrates the key features of our visual understanding chat assis
 import os
 import sys
 import time
+import logging
 from pathlib import Path
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Add current directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

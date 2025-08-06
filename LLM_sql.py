@@ -77,6 +77,11 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from colorama import Fore
 import os
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # -------------------- Config --------------------
 CHROMA_DB_PATH = "chroma_db"  # Persistent directory path for Chroma DB
@@ -87,7 +92,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MAX_LENGTH = 4096
 
 # Initialize open-source LLM
-print("Loading open-source LLM...")
+logger.info("Loading open-source LLM")
 try:
     llm_tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL_NAME, trust_remote_code=True)
     llm_model = AutoModelForCausalLM.from_pretrained(
@@ -107,10 +112,10 @@ try:
         do_sample=True,
         pad_token_id=llm_tokenizer.eos_token_id
     )
-    print("✅ Open-source LLM loaded successfully!")
+    logger.info("Open-source LLM loaded successfully")
 except Exception as e:
-    print(f"❌ Error loading LLM: {e}")
-    print("Falling back to mock responses...")
+    logger.error(f"Error loading LLM: {e}")
+    logger.warning("Falling back to mock responses")
     text_generator = None
 
 # -------------------- Init Embedding & Vector DB --------------------
@@ -134,7 +139,7 @@ def retrieve_context(query, collection_name, session_id, k=3):
     
     # If nothing matches, fallback to unfiltered top-k
     if not filtered_results:
-        print(" No matching session_id found. Returning top-k results without filter.")
+        logger.warning("No matching session_id found. Returning top-k results without filter")
         filtered_results = list(zip(results['documents'][0][:k], results['metadatas'][0][:k]))
 
     return {
@@ -264,9 +269,9 @@ Please provide a clear, factual answer based on the video content shown in the c
         else:
             answer = generated_text[len(prompt):].strip()
         
-        print(f"Generated response: {answer}")
+        logger.info(f"Generated response: {answer}")
         return answer
         
     except Exception as e:
-        print(f"Error generating response: {e}")
+        logger.error(f"Error generating response: {e}")
         return f"I encountered an error while processing your question about the video content. The question was: {query}"
