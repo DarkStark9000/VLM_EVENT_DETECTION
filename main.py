@@ -128,7 +128,6 @@ async def chat_with_assistant(request: ChatRequest):
     
     if request.session_id not in analysis_cache:
         raise HTTPException(status_code=404, detail="Session not found. Please upload a video first.")
-    
     try:
         # Get cached analysis
         cached_data = analysis_cache[request.session_id]
