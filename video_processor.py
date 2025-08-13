@@ -7,7 +7,7 @@ import base64
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, Protocol
+from typing import List, Dict, Optional, Protocol, Union
 from dataclasses import dataclass
 import io
 import av
@@ -21,7 +21,7 @@ class VideoProcessingConfig:
     vlm_base_url: str = "http://localhost:8000/v1"
     vlm_api_key: str = "dummy"
     vlm_model: str = "Qwen/Qwen2.5-VL-7B-Instruct"
-    max_frames: int = 2
+    max_frames: Optional[int] = None  # derive from duration/FPS when None
     image_width: int = 320
     image_height: int = 240
     image_quality: int = 60
@@ -57,9 +57,9 @@ class VideoAnalysisResult(BaseModel):
 
 class FrameExtractor(Protocol):
     """Protocol for frame extraction operations"""
-    
-    def extract_frames(self, video_path: str, max_frames: int) -> List[str]:
-        """Extract frames from video as base64 strings"""
+
+    def extract_frames(self, video_path: str, max_frames: Optional[int] = None) -> List[Dict[str, Union[str, float]]]:
+        """Extract frames from video as base64 strings with timestamps"""
         ...
 
 
@@ -127,39 +127,44 @@ class VideoMetadataExtractor:
 
 class VideoFrameExtractor:
     """Service for extracting frames from video files"""
-    
+
     def __init__(self, config: VideoProcessingConfig):
         self._config = config
         self._logger = logging.getLogger(__name__)
-    
-    def extract_frames(self, video_path: str, max_frames: Optional[int] = None) -> List[str]:
-        """Extract frames from video as base64 encoded strings"""
-        max_frames = max_frames or self._config.max_frames
-        
+
+    def extract_frames(self, video_path: str, max_frames: Optional[int] = None) -> List[Dict[str, Union[str, float]]]:
+        """Extract frames from video as base64 encoded strings with timestamps"""
         try:
             container = av.open(video_path)
             video_stream = container.streams.video[0]
-            
+
+            # determine max_frames dynamically if not provided
+            max_frames = max_frames or self._config.max_frames
             total_frames = self._estimate_total_frames(container, video_stream)
+            if not max_frames:
+                duration = float(container.duration / av.time_base) if container.duration else total_frames / float(video_stream.average_rate or 1)
+                max_frames = max(1, int(duration))  # approximately 1 frame per second
+
             interval = max(1, total_frames // max_frames)
-            
-            frames_b64 = []
+
+            frames_data = []
             frame_count = 0
-            
+
             for frame in container.decode(video_stream):
                 if frame_count % interval == 0:
+                    timestamp = float(frame.pts * video_stream.time_base) if frame.pts is not None else frame_count / float(video_stream.average_rate or 1)
                     frame_b64 = self._process_frame(frame)
                     if frame_b64:
-                        frames_b64.append(frame_b64)
-                    
-                    if len(frames_b64) >= max_frames:
+                        frames_data.append({"frame_b64": frame_b64, "timestamp": timestamp})
+
+                    if len(frames_data) >= max_frames:
                         break
-                
+
                 frame_count += 1
-            
+
             container.close()
-            return frames_b64
-            
+            return frames_data
+
         except Exception as e:
             self._logger.error(f"Error extracting frames: {e}")
             return []
@@ -205,11 +210,11 @@ class VLMAnalysisService:
             self._logger.error(f"Failed to initialize VLM client: {e}")
             raise
     
-    async def analyze_frames(self, frames: List[str]) -> Dict:
+    async def analyze_frames(self, frames: List[Dict[str, Union[str, float]]]) -> Dict:
         """Analyze video frames using VLM"""
         if not frames:
             raise ValueError("No frames provided for analysis")
-        
+
         try:
             content = self._prepare_content(frames)
             
@@ -230,30 +235,32 @@ class VLMAnalysisService:
             self._logger.error(f"Error in VLM analysis: {e}")
             raise
     
-    def _prepare_content(self, frames: List[str]) -> List[Dict]:
+    def _prepare_content(self, frames: List[Dict[str, Union[str, float]]]) -> List[Dict]:
         """Prepare content payload for VLM"""
         content = []
-        
-        # Add frames as images
-        for frame_b64 in frames:
+
+        # Add frames as images with timestamp metadata
+        for frame in frames:
+            frame_b64 = frame["frame_b64"]
+            timestamp = frame["timestamp"]
             content.append({
                 "type": "image_url",
                 "image_url": {
-                    "url": f"data:image/jpeg;base64,{frame_b64}"
+                    "url": f"data:image/jpeg;base64,{frame_b64}",
+                    "metadata": {"timestamp": timestamp}
                 }
             })
-        
         # Add analysis prompt requesting structured JSON with explicit timestamps
         content.append({
             "type": "text",
             "text": (
-                "Analyze this video and respond in JSON with the following schema: "
+                "Analyze this video in detail. What do you see? Who are the people/characters? What are they doing? What objects, locations, or activities are present? What happens in the sequence? Be specific and descriptive and respond in JSON with the following schema: "
                 '{"summary": "string", "events": [{"name": "string", "start": "MM:SS", '
                 '"end": "MM:SS", "description": "string"}], '
                 '"guidelines_violations": ["string"]}. Ensure start and end times are explicit.'
             ),
         })
-        
+
         return content
 
 
@@ -410,7 +417,8 @@ class VideoProcessor(BaseVideoProcessor):
     
     def extract_video_frames(self, video_path: str, max_frames: int = 3) -> List[str]:
         """Extract frames from video - legacy method for backward compatibility"""
-        return self._frame_extractor.extract_frames(video_path, max_frames)
+        frames = self._frame_extractor.extract_frames(video_path, max_frames)
+        return [f["frame_b64"] for f in frames]
     
     async def analyze_video_content(self, video_path: str) -> VideoAnalysisResult:
         """Analyze video content using VLM"""
