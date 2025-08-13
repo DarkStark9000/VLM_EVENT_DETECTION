@@ -1,0 +1,45 @@
+services:
+  vllm:
+    container_name: vllm
+    image: vllm/vllm-openai:latest
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=<>
+    command:
+      - "--model=Qwen/Qwen2.5-VL-7B-Instruct"
+      - "--dtype=auto"
+      - "--max-model-len=2048"
+      - "--tensor-parallel-size=1"
+      - "--trust-remote-code"
+    volumes:
+      - /mnt/models:/root/.cache/huggingface
+    ports:
+      - 8000:8000
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              device_ids: ["0"]
+  llm:
+    container_name: llm
+    image: vllm/vllm-openai:latest
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=<>
+    command:
+      - "--model=Qwen/Qwen2.5-7B-Instruct"
+      - "--dtype=auto"
+      - "--max-model-len=2048"
+      - "--tensor-parallel-size=1"
+      - "--trust-remote-code"
+    volumes:
+      - /mnt/models:/root/.cache/huggingface
+    ports:
+      - 8001:8000
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              device_ids: ["1"]
