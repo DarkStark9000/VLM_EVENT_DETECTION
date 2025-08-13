@@ -1,0 +1,14 @@
+# Python 3.13 Compatible Versions
+fastapi>=0.108.0
+uvicorn[standard]>=0.25.0
+python-multipart>=0.0.6
+openai>=1.6.0
+pydantic>=2.7.0
+av>=11.0.0
+Pillow>=11.3.0
+chromadb>=0.4.20
+sentence-transformers>=2.3.0
+# Additional common dependencies that might be needed
+httpx>=0.25.0
+typing-extensions>=4.8.0
+annotated-types>=0.6.0

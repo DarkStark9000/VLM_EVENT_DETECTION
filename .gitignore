@@ -1,0 +1,16 @@
+# Ignore virtual environment directories
+venv/
+.env/
+.venv/
+
+# Ignore Python bytecode cache directories and files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ignore distribution builds (optional but common)
+build/
+dist/
+*.egg-info/
+
+*.db
