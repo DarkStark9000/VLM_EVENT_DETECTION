@@ -19,7 +19,7 @@ class ChatConfig:
     """Configuration for chat handler operations"""
     llm_base_url: str = "http://localhost:8001/v1"
     llm_api_key: str = "dummy"
-    llm_model: str = "Meta-Llama/Meta-Llama-3.1-8B-Instruct"
+    llm_model: str = "Qwen/Qwen2.5-7B-Instruct"
     vlm_base_url: str = "http://localhost:8000/v1"
     vlm_api_key: str = "dummy"
     vlm_model: str = "Qwen/Qwen2.5-VL-7B-Instruct"

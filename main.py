@@ -4,7 +4,7 @@ A comprehensive system for video analysis, event detection, and multi-turn conve
 """
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
@@ -48,6 +48,32 @@ chat_handler = ChatHandler()
 
 # In-memory storage for video analysis results (in production, use Redis/DB)
 analysis_cache = {}
+
+
+@app.post("/infer")
+async def infer(video: UploadFile = File(...), prompt: str = Form(...)):
+    """Run analysis on uploaded video and respond to the given prompt."""
+    if not video.content_type.startswith("video/"):
+        raise HTTPException(status_code=400, detail="File must be a video")
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(video.filename)[1] or ".mp4") as tmp_file:
+            content = await video.read()
+            tmp_file.write(content)
+            tmp_path = tmp_file.name
+
+        analysis = await video_processor.analyze_video(tmp_path)
+        response = await chat_handler.generate_response(
+            query=prompt,
+            analysis_context=analysis,
+            chat_history=[],
+            session_id=str(uuid.uuid4())
+        )
+        return PlainTextResponse(response)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 @app.post("/analyze-video")
 async def analyze_video(video: UploadFile = File(...)):
@@ -102,7 +128,6 @@ async def chat_with_assistant(request: ChatRequest):
     
     if request.session_id not in analysis_cache:
         raise HTTPException(status_code=404, detail="Session not found. Please upload a video first.")
-    
     try:
         # Get cached analysis
         cached_data = analysis_cache[request.session_id]
