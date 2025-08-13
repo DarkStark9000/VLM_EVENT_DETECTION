@@ -250,11 +250,15 @@ class VLMAnalysisService:
                     "metadata": {"timestamp": timestamp}
                 }
             })
-
-        # Add analysis prompt
+        # Add analysis prompt requesting structured JSON with explicit timestamps
         content.append({
             "type": "text",
-            "text": "Describe this video in detail. What do you see? Who are the people/characters? What are they doing? What objects, locations, or activities are present? What happens in the sequence? Be specific and descriptive."
+            "text": (
+                "Analyze this video in detail. What do you see? Who are the people/characters? What are they doing? What objects, locations, or activities are present? What happens in the sequence? Be specific and descriptive and respond in JSON with the following schema: "
+                '{"summary": "string", "events": [{"name": "string", "start": "MM:SS", '
+                '"end": "MM:SS", "description": "string"}], '
+                '"guidelines_violations": ["string"]}. Ensure start and end times are explicit.'
+            ),
         })
 
         return content
@@ -262,78 +266,68 @@ class VLMAnalysisService:
 
 class VideoContentAnalyzer:
     """Service for analyzing and parsing video content responses"""
-    
+
     def __init__(self):
         self._logger = logging.getLogger(__name__)
-    
-    def parse_analysis_response(self, response_text: str, video_duration: str = "00:30") -> Dict:
-        """Parse VLM response text into structured analysis results"""
+
+    def parse_analysis_response(self, response_text: str, video_duration: str = "00:30") -> VideoAnalysisResult:
+        """Parse VLM JSON response into structured analysis results"""
+        import json
+
         try:
+            data = json.loads(response_text)
             events = self._extract_events(response_text, video_duration)
-            violations = self._extract_violations(response_text)
-            
-            return {
-                "events": events,
-                "summary": response_text,
-                "guidelines_violations": violations
-            }
-            
+            summary = data.get("summary", "")
+            violations = data.get("guidelines_violations", [])
+
+            return VideoAnalysisResult(
+                events=events,
+                summary=summary,
+                duration=video_duration,
+                guidelines_violations=violations,
+            )
+
         except Exception as e:
             self._logger.error(f"Error parsing analysis response: {e}")
-            return {
-                "events": [],
-                "summary": f"Analysis parsing failed: {str(e)}",
-                "guidelines_violations": []
-            }
-    
-    def _extract_events(self, text_response: str, video_duration: str) -> List[Dict]:
-        """Extract events from response text using pattern matching"""
-        import re
-        
-        events = []
-        time_pattern = r'(\d{1,2}):(\d{2})'
-        lines = text_response.split('\n')
-        
-        action_words = [
-            'shows', 'appears', 'visible', 'seen', 'moving', 'standing', 'sitting', 'walking',
-            'talking', 'holding', 'wearing', 'looking', 'coming', 'going', 'entering', 'leaving',
-            'happens', 'occurring', 'taking', 'doing', 'being', 'having', 'getting', 'making'
-        ]
-        
-        for line in lines:
-            line = line.strip()
-            if not line or len(line.split()) <= 5:
-                continue
-            
-            has_content = any(word in line.lower() for word in action_words)
-            if has_content:
-                time_matches = re.findall(time_pattern, line)
-                
-                if time_matches:
-                    start_time = f"{time_matches[0][0].zfill(2)}:{time_matches[0][1]}"
-                    end_time = start_time if len(time_matches) == 1 else f"{time_matches[1][0].zfill(2)}:{time_matches[1][1]}"
-                else:
-                    start_time = "00:00"
-                    end_time = video_duration
-                
-                event_name = self._extract_event_name(line)
-                
-                events.append({
-                    "name": event_name,
-                    "start": start_time,
-                    "end": end_time,
-                    "description": line[:120]
-                })
-        
-        # Ensure at least one event exists
+            return VideoAnalysisResult(
+                events=[],
+                summary=f"Analysis parsing failed: {str(e)}",
+                duration=video_duration,
+                guidelines_violations=[],
+            )
+
+    def _extract_events(self, text_response: str, video_duration: str) -> List[Event]:
+        """Extract events from JSON response using schema validation"""
+        import json
+        from pydantic import ValidationError
+
+        events: List[Event] = []
+        data = None
+        try:
+            data = json.loads(text_response)
+            for item in data.get("events", []):
+                try:
+                    events.append(Event(**item))
+                except ValidationError as err:
+                    self._logger.warning(f"Invalid event skipped: {err}")
+        except json.JSONDecodeError as err:
+            self._logger.warning(f"JSON decode error: {err}")
+
         if not events and text_response:
-            events.append({
-                "name": "Video Content",
-                "start": "00:00",
-                "end": video_duration,
-                "description": text_response[:150]
-            })
-        
+            fallback_desc = ""
+            if data and isinstance(data, dict):
+                fallback_desc = data.get("summary", "")[:150]
+            else:
+                fallback_desc = text_response[:150]
+            events.append(
+                Event(
+                    name="Video Content",
+                    start="00:00",
+                    end=video_duration,
+                    description=fallback_desc,
+                )
+            )
+
         return events
     
     def _extract_violations(self, text_response: str) -> List[str]:
@@ -426,58 +420,46 @@ class VideoProcessor(BaseVideoProcessor):
         frames = self._frame_extractor.extract_frames(video_path, max_frames)
         return [f["frame_b64"] for f in frames]
     
-    async def analyze_video_content(self, video_path: str) -> Dict:
-        """Analyze video content using VLM - legacy method for backward compatibility"""
+    async def analyze_video_content(self, video_path: str) -> VideoAnalysisResult:
+        """Analyze video content using VLM"""
         try:
             # Extract frames
             frames = self._frame_extractor.extract_frames(video_path)
             if not frames:
                 raise ValueError("Could not extract frames from video")
-            
+
             # Analyze with VLM
             vlm_response = await self._vlm_service.analyze_frames(frames)
-            
-            # Parse response
+
+            # Parse response and attach video info
             video_info = self._metadata_extractor.extract_info(video_path)
             analysis_result = self._content_analyzer.parse_analysis_response(
                 vlm_response.get("content", ""),
-                video_info.duration
+                video_info.duration,
             )
-            
+            analysis_result.video_info = video_info
             return analysis_result
-            
+
         except Exception as e:
             self._logger.error(f"Error in video analysis: {e}")
-            return {
-                "events": [],
-                "summary": f"Analysis failed: {str(e)}",
-                "guidelines_violations": []
-            }
-    
+            return VideoAnalysisResult(
+                events=[],
+                summary=f"Analysis failed: {str(e)}",
+                duration="00:00",
+                guidelines_violations=[],
+            )
+
     async def analyze_video(self, video_path: str) -> Dict:
         """Main video analysis function - maintains exact same interface"""
         try:
             self._logger.info(f"Starting analysis of video: {video_path}")
-            
-            # Extract video information
-            video_info = self._metadata_extractor.extract_info(video_path)
-            self._logger.info(f"Video duration: {video_info.duration}")
-            
-            # Analyze content
+
             analysis_result = await self.analyze_video_content(video_path)
-            
-            # Combine results - maintaining exact same output format
-            result = {
-                "duration": video_info.duration,
-                "events": analysis_result.get("events", []),
-                "summary": analysis_result.get("summary", "No summary available"),
-                "guidelines_violations": analysis_result.get("guidelines_violations", []),
-                "video_info": video_info.dict()
-            }
-            
-            self._logger.info(f"Analysis complete. Found {len(result['events'])} events")
-            return result
-            
+            self._logger.info(f"Video duration: {analysis_result.duration}")
+            self._logger.info(f"Analysis complete. Found {len(analysis_result.events)} events")
+
+            return analysis_result.dict()
+
         except Exception as e:
             self._logger.error(f"Video analysis failed: {e}")
             return {
